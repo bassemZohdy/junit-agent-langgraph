@@ -292,6 +292,15 @@ class AccessControlManager:
                 "allowed_paths_count": len(self._allowed_paths),
                 "restricted_paths_count": len(self._restricted_paths)
             }
+    
+    def reset(self) -> None:
+        """Reset access control manager to initial state."""
+        with self._lock:
+            self._project_root = None
+            self._allowed_paths = set()
+            self._restricted_paths = set()
+            self._read_only_mode = False
+            self.clear_audit_log()
 
 
 _global_access_control: Optional[AccessControlManager] = None

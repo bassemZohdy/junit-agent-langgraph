@@ -12,6 +12,20 @@ from ..exceptions.handler import ValidationError, create_error_response
 from ..states.project import ProjectState, JavaClassState
 
 
+def _make_serializable(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert non-serializable objects in state to serializable form.
+
+    Specifically handles LangChain BaseMessage objects that contain model_dump() method.
+    """
+    state_copy = copy.deepcopy(state)
+    if "messages" in state_copy:
+        state_copy["messages"] = [
+            msg.model_dump() if hasattr(msg, 'model_dump') else str(msg)
+            for msg in state_copy.get("messages", [])
+        ]
+    return state_copy
+
+
 @dataclass
 class StateSnapshot:
     """A snapshot of state at a specific point in time."""
@@ -144,7 +158,7 @@ class StateManager:
     def _create_snapshot(self, operation: str) -> StateSnapshot:
         """Create a snapshot of the current state."""
         if self._current_state:
-            state_data = copy.deepcopy(self._current_state)
+            state_data = _make_serializable(self._current_state)
             state_str = json.dumps(state_data, sort_keys=True)
             checksum = hashlib.sha256(state_str.encode()).hexdigest()
             
@@ -286,6 +300,10 @@ class StateManager:
             self._current_state = None
             self._snapshots.clear()
             self._transactions.clear()
+    
+    def reset(self) -> None:
+        """Reset state manager to initial state (alias for clear_state)."""
+        self.clear_state()
 
 
 _global_state_manager: Optional[StateManager] = None

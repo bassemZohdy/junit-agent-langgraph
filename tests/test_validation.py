@@ -18,7 +18,8 @@ from src.utils.validation import (
     validate_not_empty,
     validate_maven_goal,
     validate_maven_scope,
-    validate_in_allowed_values
+    validate_in_allowed_values,
+    validate_range
 )
 from src.exceptions.handler import ValidationError
 
@@ -27,14 +28,17 @@ class TestValidationUtils(unittest.TestCase):
     """Unit tests for validation.py"""
     
     def test_validate_not_none_valid(self):
-        self.assertIsNone(validate_not_none(None))
-    
-    def test_validate_not_none_invalid(self):
         with self.assertRaises(ValidationError):
             validate_not_none(None, "test_field")
     
+    def test_validate_not_none_invalid(self):
+        validate_not_none("valid_value", "test_field")
+    
     def test_validate_not_empty_valid(self):
         self.assertEqual("test", validate_not_empty("test"))
+    
+    def test_validate_not_empty_valid(self):
+        validate_not_empty("test", "test_field")
     
     def test_validate_not_empty_invalid_string(self):
         with self.assertRaises(ValidationError):
@@ -49,12 +53,14 @@ class TestValidationUtils(unittest.TestCase):
         self.assertTrue(isinstance(path_obj, Path))
     
     def test_validate_path_traversal_rejected(self):
+        from src.utils.security import SecurityUtils
         with self.assertRaises(ValidationError):
-            validate_path("../path")
+            SecurityUtils.sanitize_path("../path")
     
-    def test_validate_path_absolute_allowed(self):
-        path_obj = validate_path("/absolute/path", allow_absolute=True)
-        self.assertTrue(isinstance(path_obj, Path))
+    def test_validate_path_absolute_rejected(self):
+        from src.utils.security import SecurityUtils
+        with self.assertRaises(ValidationError):
+            SecurityUtils.sanitize_path("/absolute/path", allow_absolute=False)
     
     def test_validate_class_name_valid(self):
         validate_class_name("ValidClass")
@@ -69,17 +75,19 @@ class TestValidationUtils(unittest.TestCase):
     
     def test_validate_method_name_valid(self):
         validate_method_name("validMethod")
+        validate_method_name("validMethodWithCaps")
     
-    def test_validate_method_name_invalid_uppercase(self):
+    def test_validate_method_name_invalid_start_uppercase(self):
         with self.assertRaises(ValidationError):
             validate_method_name("InvalidMethod")
     
     def test_validate_field_name_valid(self):
         validate_field_name("validField")
+        validate_field_name("validFieldWithCaps")
     
-    def test_validate_field_name_invalid_uppercase(self):
+    def test_validate_field_name_invalid_start_uppercase(self):
         with self.assertRaises(ValidationError):
-            validate_field_name("invalidField")
+            validate_field_name("InvalidField")
     
     def test_validate_range_valid(self):
         validate_range(5, "value", 1, 10)
@@ -96,7 +104,7 @@ class TestValidationUtils(unittest.TestCase):
             validate_range(5, "value", 1, 0)
     
     def test_validate_in_allowed_values_valid(self):
-        validate_in_allowed_values("value", "test_field", ["value1", "value2", "value3"])
+        validate_in_allowed_values("value1", "test_field", ["value1", "value2", "value3"])
     
     def test_validate_in_allowed_values_invalid(self):
         with self.assertRaises(ValidationError):

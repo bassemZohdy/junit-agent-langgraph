@@ -53,7 +53,7 @@ def diff_states(state1: Dict[str, Any], state2: Dict[str, Any]) -> DiffReport:
     summary = {
         "added": 0,
         "removed": 0,
-        "modified": 0
+        "modified": 0,
         "classes_changed": 0,
         "fields_changed": 0,
         "methods_changed": 0

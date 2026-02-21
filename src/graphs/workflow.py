@@ -77,26 +77,26 @@ def create_test_generation_workflow(llm=None, max_retries=3):
 
     async def validate_test_node(state: ProjectState):
         test_classes = state.get("test_classes", [])
-        
+
         all_passed = True
         updated_test_classes = []
-        
+        all_test_results = {}
+
         for test_class in test_classes:
             test_state = state.copy()
             test_state["test_classes"] = [test_class]
             result = await validate_test_agent.process(test_state)
-            
+
             updated_test = result.get("test_classes", [test_class])[0]
             updated_test_classes.append(updated_test)
-            
+            all_test_results.update(result.get("test_results", {}))
+
             if updated_test.get("status") != "passed":
                 all_passed = False
-        
-        test_results = result.get("test_results", {})
-        
+
         return {
             "test_classes": updated_test_classes,
-            "test_results": test_results,
+            "test_results": all_test_results,
             "all_tests_passed": all_passed,
             "last_action": "tests_validated"
         }

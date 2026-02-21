@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 import javalang
 from typing import List, Dict, Optional
 from pathlib import Path
@@ -7,6 +8,7 @@ from ..exceptions.handler import FileOperationError, ValidationError, create_err
 from ..utils.validation import validate_file_exists, validate_class_name
 
 
+@dataclass
 class CodeSmell:
     """Represents a detected code smell."""
     name: str
@@ -15,6 +17,7 @@ class CodeSmell:
     severity: str
 
 
+@dataclass
 class SecurityIssue:
     """Represents a detected security issue."""
     name: str

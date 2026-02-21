@@ -40,8 +40,8 @@ def generate_getters_setters(java_file: str, class_name: str) -> str:
             
             getter_name = f"get{field_name[0].upper()}{field_name[1:]}"
             setter_name = f"set{field_name[0].upper()}{field_name[1:]}"
-            
-            generated_code.append(f"{indent}public {field_type_name} {getter_name() {{")
+
+            generated_code.append(f"{indent}public {field_type_name} {getter_name()} {{")
             generated_code.append(f"{indent}{indent}return this.{field_name};")
             generated_code.append(f"{indent}}}")
             generated_code.append("")
@@ -275,11 +275,11 @@ def generate_builder_pattern(java_file: str, class_name: str) -> str:
             field_name = field.name
             builder_field_name = f"_{field_name}"
             build_params.append(f"{builder_field_name}")
-        
-        builder_code.append(f"{indent}{indent}{indent}\", \".join(build_params)});")
+
+        builder_code.append(f'{indent}{indent}{indent}", ".join(build_params));')
         builder_code.append(f"{indent}{indent}}}")
         builder_code.append("")
-        
+
         builder_code.append(f"{indent}}}")
         builder_code.append("")
         

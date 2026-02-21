@@ -144,6 +144,7 @@ class TestStateManager(unittest.TestCase):
             state = self.manager.get_state()
             state["project_name"] = "modified_project"
             self.manager.set_state(state)
+            return state
         
         result = self.manager.execute_with_rollback("test_operation", test_operation)
         

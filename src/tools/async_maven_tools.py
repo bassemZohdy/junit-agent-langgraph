@@ -9,7 +9,6 @@ from ..states.project import (
     MavenPluginState,
     MavenBuildState
 )
-from .java_tools import create_java_class_state
 
 
 async def maven_build_async(directory: str, goals: str = "compile") -> dict:

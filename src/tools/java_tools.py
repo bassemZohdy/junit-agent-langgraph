@@ -1,6 +1,6 @@
 import javalang
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from langchain_core.tools import tool
 from ..exceptions.handler import ParsingError, create_error_response
 from ..utils.validation import (
@@ -36,6 +36,7 @@ def _parse_java_file(file_path: str) -> Optional[javalang.tree.CompilationUnit]:
 
 
 def _extract_class_name(file_path: str, tree: javalang.tree.CompilationUnit) -> Optional[str]:
+    """Extract the first class/interface/enum name from tree."""
     for path, node in tree:
         if isinstance(node, javalang.tree.ClassDeclaration):
             return node.name
@@ -46,441 +47,332 @@ def _extract_class_name(file_path: str, tree: javalang.tree.CompilationUnit) -> 
     return None
 
 
-@tool
-def find_java_files(directory: str) -> str:
-    """Find all Java source files in a directory."""
-    try:
-        path = validate_directory_exists(directory)
-        java_files = [str(f) for f in path.rglob("*.java")]
-        return "\n".join(java_files) if java_files else "No Java files found"
-    except Exception as e:
-        response = create_error_response(e)
-        return f"Error finding Java files: {response['errors'][0]}"
+def _extract_fields_from_node(node: javalang.tree.ClassDeclaration) -> list[FieldState]:
+    """Extract field information from a class node."""
+    fields: list[FieldState] = []
+    for field in node.fields:
+        field_modifiers = [m for m in field.modifiers]
+        is_static = "static" in field_modifiers
+        is_final = "final" in field_modifiers
+        field_annotations = []
 
+        if field.annotations:
+            for ann in field.annotations:
+                ann_name = ann.name if hasattr(ann, "name") else str(ann)
+                ann_elements = {}
+                if hasattr(ann, "element"):
+                    ann_elements[ann.element.name] = str(ann.element)
 
-@tool
-def create_java_class_state(source_file: str) -> JavaClassState:
-    """Create JavaClassState from a Java source file."""
-    try:
-        path = validate_java_file(source_file)
-        
-        tree = _parse_java_file(source_file)
-        if not tree:
-            return {
-                "name": path.stem,
-                "file_path": source_file,
-                "package": None,
-                "content": None,
-                "type": "class",
-                "modifiers": [],
-                "extends": None,
-                "implements": [],
-                "annotations": [],
-                "fields": [],
-                "methods": [],
-                "imports": [],
-                "inner_classes": [],
-                "status": "error",
-                "errors": ["Failed to parse Java file"],
-                "line_number": None
-            }
-        
-        class_name = _extract_class_name(source_file, tree) or path.stem
-        
-        fields: list[FieldState] = []
-        methods: list[MethodState] = []
-        imports: list[ImportState] = []
-        annotations: list[AnnotationState] = []
-        modifiers: list[str] = []
-        extends: Optional[str] = None
-        implements: list[str] = []
-        inner_classes: list[str] = []
-        
-        for path, node in tree:
-            if isinstance(node, javalang.tree.ClassDeclaration):
-                for modifier in node.modifiers:
-                    if modifier not in modifiers:
-                        modifiers.append(modifier)
-                
-                if node.extends:
-                    extends = node.extends.name
-                
-                if node.implements:
-                    implements = [impl.name for impl in node.implements]
-                
-                for field in node.fields:
-                    field_modifiers = [m for m in field.modifiers]
-                    is_static = "static" in field_modifiers
-                    is_final = "final" in field_modifiers
-                    field_annotations = []
-                    
-                    for decl in field.declarators:
-                        field_type = str(field.type) if field.type else "Object"
-                        
-                        if field.annotations:
-                            for ann in field.annotations:
-                                ann_name = ann.name if hasattr(ann, "name") else str(ann)
-                                ann_elements = {}
-                                if hasattr(ann, "element"):
-                                    ann_elements[ann.element.name] = str(ann.element)
-                                
-                                field_annotations.append({
-                                    "name": ann_name,
-                                    "elements": ann_elements,
-                                    "target": None,
-                                    "line_number": None
-                                })
-                        
-                        fields.append({
-                            "name": decl.name,
-                            "type": field_type,
-                            "modifiers": field_modifiers,
-                            "is_static": is_static,
-                            "is_final": is_final,
-                            "default_value": None,
-                            "annotations": field_annotations,
-                            "line_number": None
-                        })
-                
-                for method in node.methods:
-                    method_modifiers = [m for m in method.modifiers]
-                    is_static = "static" in method_modifiers
-                    is_abstract = "abstract" in method_modifiers
-                    is_final = "final" in method_modifiers
-                    method_annotations = []
-                    throws = []
-                    
-                    if method.throws:
-                        for throw_clause in method.throws:
-                            throws.append(throw_clause.name if throw_clause.name else str(throw_clause))
-                    
-                    method_annotations.extend([
-                        {
-                            "name": ann.name if hasattr(ann, "name") else str(ann),
-                            "elements": ann_elements if hasattr(ann, "element") else {},
-                            "target": None,
-                            "line_number": None
-                        }
-                        for ann in method.annotations
-                    ])
-                    
-                    parameters = []
-                    for param in method.parameters:
-                        param_type = str(param.type) if param.type else "Object"
-                        parameters.append({
-                            "name": param.name,
-                            "type": param_type,
-                            "position": "method parameter" if not hasattr(param, "position") else None
-                        })
-                    
-                    methods.append({
-                        "name": method.name,
-                        "return_type": str(method.return_type) if method.return_type else "void",
-                        "parameters": parameters,
-                        "modifiers": method_modifiers,
-                        "is_static": is_static,
-                        "is_abstract": is_abstract,
-                        "is_final": is_final,
-                        "annotations": method_annotations,
-                        "throws": throws,
-                        "body": None,
-                        "line_number": None
-                    })
-        
-        imports_list: list[ImportState] = []
-        for imp in tree.imports:
-            is_static = imp.static if hasattr(imp, "static") and imp.static else False
-            is_wildcard = False
-            
-            imports_list.append({
-                "name": imp.path,
+                field_annotations.append({
+                    "name": ann_name,
+                    "elements": ann_elements,
+                    "target": None,
+                    "line_number": None
+                })
+
+        for decl in field.declarators:
+            field_type = str(field.type) if field.type else "Object"
+            fields.append({
+                "name": decl.name,
+                "type": field_type,
+                "modifiers": field_modifiers,
                 "is_static": is_static,
-                "is_wildcard": is_wildcard,
+                "is_final": is_final,
+                "default_value": None,
+                "annotations": field_annotations,
                 "line_number": None
             })
-        
-        class_annotations: list[AnnotationState] = []
-        for ann in node.annotations:
-            ann_name = ann.name if hasattr(ann, "name") else str(ann)
-            ann_elements = {}
-            
-            if hasattr(ann, "element"):
-                ann_elements[ann.element.name] = str(ann.element)
-            
-            target = None
-            if hasattr(node, javalang.tree.ClassDeclaration):
-                target = "class"
-            elif hasattr(node, javalang.tree.FieldDeclaration):
-                target = "field"
-            elif hasattr(node, javalang.tree.MethodDeclaration):
-                target = "method"
-            
-            class_annotations.append({
-                "name": ann_name,
-                "elements": ann_elements,
-                "target": target,
-                "line_number": None
-            })
-        
-        package_name = tree.package.name if tree.package else None
-        
-        return {
-            "name": class_name,
-            "file_path": source_file,
-            "package": package_name,
-            "content": path.read_text(encoding="utf-8"),
-            "type": "class",
-            "modifiers": modifiers,
-            "extends": extends,
-            "implements": implements,
-            "annotations": class_annotations,
-            "fields": fields,
-            "methods": methods,
-            "imports": imports_list,
-            "inner_classes": inner_classes,
-            "status": "analyzed",
-            "errors": [],
-            "line_number": None
-        }
-    except Exception as e:
-        return {
-            "name": path.stem,
-            "file_path": source_file,
-            "package": None,
-            "content": None,
-            "type": "class",
-            "modifiers": [],
-            "extends": None,
-            "implements": [],
-            "annotations": [],
-            "fields": [],
-            "methods": [],
-            "imports": [],
-            "inner_classes": [],
-            "status": "error",
-            "errors": [str(e)],
-            "line_number": None
-        }
-        
-        tree = _parse_java_file(source_file)
-        if not tree:
-            return {
-                "name": Path(source_file).stem,
-                "file_path": source_file,
-                "package": tree.package.name if tree.package else None,
-                "content": path.read_text(encoding="utf-8"),
-                "type": "class",
-                "modifiers": [],
-                "extends": None,
-                "implements": [],
-                "annotations": [],
-                "fields": [],
-                "methods": [],
-                "imports": [],
-                "inner_classes": [],
-                "status": "error",
-                "errors": ["Failed to parse Java file"],
+    return fields
+
+
+def _extract_methods_from_node(node: javalang.tree.ClassDeclaration) -> list[MethodState]:
+    """Extract method information from a class node."""
+    methods: list[MethodState] = []
+    for method in node.methods:
+        method_modifiers = [m for m in method.modifiers]
+        is_abstract = "abstract" in method_modifiers
+        method_annotations = []
+        throws = []
+
+        if method.throws:
+            for throw_clause in method.throws:
+                throws.append(throw_clause.name if hasattr(throw_clause, "name") else str(throw_clause))
+
+        method_annotations.extend([
+            {
+                "name": ann.name if hasattr(ann, "name") else str(ann),
+                "elements": {},
+                "target": None,
                 "line_number": None
             }
-        
-        class_name = _extract_class_name(source_file, tree) or Path(source_file).stem
-        
-        return {
-            "name": class_name,
-            "file_path": source_file,
-            "package": tree.package.name if tree.package else None,
-            "content": path.read_text(encoding="utf-8"),
-            "type": "class",
-            "modifiers": [],
-            "extends": None,
-            "implements": [],
-            "annotations": [],
-            "fields": [],
-            "methods": [],
-            "imports": [],
-            "inner_classes": [],
-            "status": "analyzed",
-            "errors": [],
+            for ann in method.annotations
+        ])
+
+        parameters = []
+        for param in method.parameters:
+            param_type = str(param.type) if param.type else "Object"
+            parameters.append({
+                "name": param.name,
+                "type": param_type,
+                "position": "method parameter"
+            })
+
+        methods.append({
+            "name": method.name,
+            "return_type": str(method.return_type) if method.return_type else "void",
+            "parameters": parameters,
+            "modifiers": method_modifiers,
+            "annotations": method_annotations,
+            "throws": throws,
+            "body": None,
+            "is_abstract": is_abstract,
             "line_number": None
-        }
-    except Exception as e:
-        return {
-            "name": "",
-            "file_path": source_file,
-            "package": None,
-            "content": None,
-            "type": "class",
-            "modifiers": [],
-            "extends": None,
-            "implements": [],
-            "annotations": [],
-            "fields": [],
-            "methods": [],
-            "imports": [],
-            "inner_classes": [],
-            "status": "error",
-            "errors": [str(e)],
+        })
+    return methods
+
+
+def _extract_class_details_from_tree(source_file: str, tree: javalang.tree.CompilationUnit) -> list[JavaClassState]:
+    """
+    Extract all class details from an AST tree into structured JavaClassState objects.
+
+    This is the unified, centralized function for extracting Java class information.
+    All class extraction logic goes through here to maintain DRY principle.
+
+    Args:
+        source_file: Path to the source file
+        tree: Parsed AST tree from javalang
+
+    Returns:
+        List of JavaClassState objects, one per class in the file
+    """
+    classes: list[JavaClassState] = []
+    file_content = Path(source_file).read_text(encoding="utf-8") if Path(source_file).exists() else None
+    package_name = tree.package.name if tree.package else None
+
+    # Extract imports once for all classes in file
+    imports_list: list[ImportState] = []
+    for imp in tree.imports:
+        is_static = getattr(imp, "static", False)
+        imports_list.append({
+            "name": imp.path,
+            "is_static": is_static,
+            "is_wildcard": "*" in imp.path,
             "line_number": None
-        }
+        })
+
+    # Extract each class in the file
+    for path_elem, node in tree:
+        if isinstance(node, javalang.tree.ClassDeclaration):
+            modifiers = list(node.modifiers) if node.modifiers else []
+            extends = node.extends.name if node.extends else None
+            implements = [impl.name for impl in node.implements] if node.implements else []
+
+            # Extract fields and methods using helpers
+            fields = _extract_fields_from_node(node)
+            methods = _extract_methods_from_node(node)
+
+            # Extract class annotations
+            class_annotations: list[AnnotationState] = []
+            for ann in (node.annotations if node.annotations else []):
+                ann_name = ann.name if hasattr(ann, "name") else str(ann)
+                ann_elements = {}
+                if hasattr(ann, "element"):
+                    ann_elements[ann.element.name] = str(ann.element)
+
+                class_annotations.append({
+                    "name": ann_name,
+                    "elements": ann_elements,
+                    "target": "class",
+                    "line_number": None
+                })
+
+            class_state: JavaClassState = {
+                "name": node.name,
+                "file_path": source_file,
+                "package": package_name,
+                "content": file_content,
+                "type": "class",
+                "modifiers": modifiers,
+                "extends": extends,
+                "implements": implements,
+                "annotations": class_annotations,
+                "fields": fields,
+                "methods": methods,
+                "imports": imports_list,
+                "inner_classes": [],
+                "status": "analyzed",
+                "errors": [],
+                "line_number": None
+            }
+            classes.append(class_state)
+
+    return classes
+
+
+def _analyze_java_class_impl(path: Optional[str] = None, source_code: Optional[str] = None) -> JavaClassState:
+    """Analyze a single Java class from file path or source code.
+
+    CANONICAL entry point for Java class analysis. Returns complete JavaClassState
+    with all class information (methods, fields, imports, annotations, etc.).
+
+    Args:
+        path: File path to Java source file (e.g., "/path/to/User.java")
+              If provided, source_code must be None
+        source_code: Full Java source code as string (e.g., "public class User { ... }")
+                    If provided, path must be None
+
+    Returns:
+        JavaClassState: Complete class information including:
+            - name: Class name
+            - fields: List of FieldState objects
+            - methods: List of MethodState objects
+            - imports: List of ImportState objects
+            - annotations: List of AnnotationState objects
+            - package: Package name
+            - extends: Parent class name
+            - implements: Interface names
+            - status: "analyzed" or "error"
+            - errors: List of error messages if any
+
+    Raises:
+        ValueError: If both path and source_code are provided, or neither are provided
+
+    Note: Returns the FIRST class found in the source/file.
+    Use list_java_classes() for directory iteration.
+
+    This is the ATOMIC operation - all class analysis flows through here.
+    """
+    try:
+        # Validation: exactly one parameter must be provided
+        if path and source_code:
+            raise ValueError("Provide either 'path' OR 'source_code', not both")
+
+        if not path and not source_code:
+            return _make_error_class_state(
+                "Provide either 'path' or 'source_code' parameter",
+                "<empty>"
+            )
+
+        # Handle file path
+        if path:
+            validate_java_file(path)
+            file_path = path
+            tree = _parse_java_file(file_path)
+        else:
+            # Handle source code
+            file_path = "<inline_source>"
+            try:
+                tree = javalang.parse.parse(source_code)
+            except Exception:
+                tree = None
+
+        if not tree:
+            return _make_error_class_state(
+                "Failed to parse Java source",
+                file_path
+            )
+
+        # Use unified extraction logic - SINGLE SOURCE OF TRUTH
+        classes = _extract_class_details_from_tree(file_path, tree)
+
+        if not classes:
+            return _make_error_class_state(
+                "No classes found in source",
+                file_path
+            )
+
+        # Return the first class
+        return classes[0]
+
+    except ValueError as e:
+        # Re-raise validation errors
+        return _make_error_class_state(str(e), path or "<inline_source>")
+    except Exception as e:
+        return _make_error_class_state(str(e), path or "<inline_source>")
 
 
 @tool
-def get_java_classes(source_file: str) -> str:
-    """Get all classes declared in a Java file."""
-    try:
-        validate_java_file(source_file)
-        tree = _parse_java_file(source_file)
-        if not tree:
-            return f"Error: Could not parse '{source_file}'"
-        
-        classes = []
-        for path, node in tree:
-            if isinstance(node, javalang.tree.ClassDeclaration):
-                extends_str = f" (extends {node.extends.name})" if node.extends else ""
-                classes.append(f"Class: {node.name}{extends_str}")
-            elif isinstance(node, javalang.tree.InterfaceDeclaration):
-                classes.append(f"Interface: {node.name}")
-            elif isinstance(node, javalang.tree.EnumDeclaration):
-                classes.append(f"Enum: {node.name}")
-        
-        return "\n".join(classes) if classes else "No classes found"
-    except Exception as e:
-        response = create_error_response(e)
-        return f"Error getting classes: {response['errors'][0]}"
+def analyze_java_class(path: Optional[str] = None, source_code: Optional[str] = None) -> JavaClassState:
+    """Decorated wrapper for Java class analysis (see _analyze_java_class_impl for docs)."""
+    return _analyze_java_class_impl(path=path, source_code=source_code)
+
+
+def _list_java_files(directory: str) -> list[Path]:
+    """Get all Java file paths in directory (private helper for file discovery).
+
+    Args:
+        directory: Directory path to search for Java files
+
+    Returns:
+        List of Path objects for all .java files found (sorted)
+    """
+    path = validate_directory_exists(directory)
+    return sorted(path.rglob("*.java"))
 
 
 @tool
-def get_java_methods(source_file: str, class_name: Optional[str] = None) -> str:
-    """Get all methods from a Java file or specific class."""
+def list_java_classes(directory: str) -> list[JavaClassState]:
+    """Analyze all Java classes in a directory.
+
+    Iterates through all .java files in directory (recursively) and returns
+    a list of JavaClassState objects. Uses _analyze_java_class_impl() internally
+    for consistent analysis.
+
+    Args:
+        directory: Directory path to search for Java files
+
+    Returns:
+        List[JavaClassState]: All Java classes found, each with complete analysis
+
+    This is a convenience function that combines file discovery with analysis.
+    Replaces find_java_files() for most use cases.
+    """
     try:
-        validate_java_file(source_file)
-        if class_name:
-            validate_class_name(class_name)
-        tree = _parse_java_file(source_file)
-        if not tree:
-            return f"Error: Could not parse '{source_file}'"
-        
-        methods_info = []
-        for path, node in tree:
-            if isinstance(node, javalang.tree.MethodDeclaration):
-                modifiers = " ".join(node.modifiers) if node.modifiers else ""
-                return_type = node.return_type.name if node.return_type else "void"
-                params = ", ".join([f"{p.type.name} {p.name}" for p in node.parameters]) if node.parameters else ""
-                methods_info.append(f"  {modifiers} {return_type} {node.name}({params})")
-        
-        return "\n".join(methods_info) if methods_info else "No methods found"
+        java_files = _list_java_files(directory)
+
+        if not java_files:
+            return []
+
+        results: list[JavaClassState] = []
+        for java_file in java_files:
+            try:
+                class_state = _analyze_java_class_impl(path=str(java_file))
+                results.append(class_state)
+            except Exception as e:
+                # Include error states for failed analyses
+                results.append(_make_error_class_state(
+                    f"Failed to analyze: {str(e)}",
+                    str(java_file)
+                ))
+
+        return results
+
     except Exception as e:
-        return f"Error getting methods: {str(e)}"
+        # Return empty list with error in logging (directory validation failed)
+        return []
 
 
-@tool
-def get_java_fields(source_file: str, class_name: Optional[str] = None) -> str:
-    """Get all fields from a Java file or specific class."""
-    try:
-        tree = _parse_java_file(source_file)
-        if not tree:
-            return f"Error: Could not parse '{source_file}'"
-        
-        fields_info = []
-        for path, node in tree:
-            if isinstance(node, javalang.tree.FieldDeclaration):
-                modifiers = " ".join(node.modifiers) if node.modifiers else ""
-                field_type = node.type.name
-                declarators = [f"{d.name}" for d in node.declarators]
-                fields_info.append(f"  {modifiers} {field_type} {', '.join(declarators)}")
-        
-        return "\n".join(fields_info) if fields_info else "No fields found"
-    except Exception as e:
-        return f"Error getting fields: {str(e)}"
-
-
-@tool
-def get_java_imports(source_file: str) -> str:
-    """Get all imports from a Java file."""
-    try:
-        tree = _parse_java_file(source_file)
-        if not tree:
-            return f"Error: Could not parse '{source_file}'"
-        
-        imports = [imp.path for imp in tree.imports]
-        return "\n".join(imports) if imports else "No imports found"
-    except Exception as e:
-        return f"Error getting imports: {str(e)}"
-
-
-@tool
-def get_java_annotations(source_file: str, target_type: Optional[str] = None) -> str:
-    """Get all annotations from a Java file. Target type can be 'class', 'method', 'field'."""
-    try:
-        tree = _parse_java_file(source_file)
-        if not tree:
-            return f"Error: Could not parse '{source_file}'"
-        
-        annotations_info = []
-        
-        for path, node in tree:
-            if hasattr(node, 'annotations') and node.annotations:
-                node_type = type(node).__name__
-                if target_type is None or (target_type and target_type.lower() in node_type.lower()):
-                    for ann in node.annotations:
-                        ann_name = ann.name if hasattr(ann, 'name') else str(ann)
-                        element = ""
-                        if hasattr(ann, 'element') and ann.element:
-                            element = f"({ann.element})"
-                        annotations_info.append(f"  @{ann_name}{element} on {node_type}")
-        
-        return "\n".join(annotations_info) if annotations_info else "No annotations found"
-    except Exception as e:
-        return f"Error getting annotations: {str(e)}"
-
-
-@tool
-def get_java_package(source_file: str) -> str:
-    """Get package declaration from a Java file."""
-    try:
-        tree = _parse_java_file(source_file)
-        if not tree:
-            return f"Error: Could not parse '{source_file}'"
-        
-        return tree.package.name if tree.package else "No package declaration"
-    except Exception as e:
-        return f"Error getting package: {str(e)}"
-
-
-@tool
-def analyze_java_class(source_file: str, class_name: Optional[str] = None) -> str:
-    """Get complete analysis of a Java class including fields, methods, annotations."""
-    try:
-        tree = _parse_java_file(source_file)
-        if not tree:
-            return f"Error: Could not parse '{source_file}'"
-        
-        analysis = []
-        analysis.append(f"File: {source_file}")
-        analysis.append(f"Package: {tree.package.name if tree.package else 'default'}")
-        
-        for path, node in tree:
-            if isinstance(node, javalang.tree.ClassDeclaration):
-                if class_name is None or node.name == class_name:
-                    analysis.append(f"\nClass: {node.name}")
-                    
-                    if node.extends:
-                        analysis.append(f"  Extends: {node.extends.name}")
-                    
-                    if node.implements:
-                        impl_names = [impl.name for impl in node.implements]
-                        analysis.append(f"  Implements: {', '.join(impl_names)}")
-                    
-                    if node.annotations:
-                        ann_names = [ann.name for ann in node.annotations]
-                        analysis.append(f"  Annotations: {', '.join(ann_names)}")
-        
-        analysis.append("\nImports:")
-        analysis.extend([f"  {imp.path}" for imp in tree.imports])
-        
-        return "\n".join(analysis)
-    except Exception as e:
-        return f"Error analyzing class: {str(e)}"
+def _make_error_class_state(error_msg: str, file_path: str) -> JavaClassState:
+    """Create an error JavaClassState for failed analysis."""
+    path = Path(file_path)
+    return {
+        "name": path.stem if file_path != "<inline_source>" else "unknown",
+        "file_path": file_path,
+        "package": None,
+        "content": None,
+        "type": "class",
+        "modifiers": [],
+        "extends": None,
+        "implements": [],
+        "annotations": [],
+        "fields": [],
+        "methods": [],
+        "imports": [],
+        "inner_classes": [],
+        "status": "error",
+        "errors": [error_msg],
+        "line_number": None
+    }
 
 
 @tool
@@ -965,16 +857,29 @@ def comment_annotation(source_file: str, annotation: str) -> str:
         return f"Error commenting annotation: {str(e)}"
 
 
+def extract_classes_from_tree(tree: javalang.tree.CompilationUnit, source_file: str = "<unknown>") -> list[JavaClassState]:
+    """Extract class information from a parsed AST tree.
+
+    This function encapsulates javalang-specific logic for agent use.
+    Returns structured JavaClassState objects for use across all layers.
+
+    Agents should call this instead of directly accessing javalang types.
+
+    Args:
+        tree: Parsed AST tree from javalang
+        source_file: Path to source file (for context in returned states)
+
+    Returns:
+        List of JavaClassState objects with full class details
+    """
+    return _extract_class_details_from_tree(source_file, tree)
+
+
 java_tools = [
-    find_java_files,
-    create_java_class_state,
-    get_java_classes,
-    get_java_methods,
-    get_java_fields,
-    get_java_imports,
-    get_java_annotations,
-    get_java_package,
+    # Core Analysis Tools
     analyze_java_class,
+    list_java_classes,
+    # Modification tools
     add_import,
     remove_import,
     replace_import,

@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import List, Callable, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import inspect
 
 
 async def run_concurrent_tasks(
@@ -11,45 +12,45 @@ async def run_concurrent_tasks(
 ) -> List[Any]:
     """
     Run multiple tasks concurrently.
-    
+
     Args:
-        tasks: List of callable functions to execute
+        tasks: List of callable functions to execute (can be sync or async)
         max_workers: Maximum number of concurrent workers
         show_progress: Whether to show progress messages
-    
+
     Returns:
         List of results in the same order as tasks
     """
     from ..utils.logging import get_logger
     logger = get_logger("concurrent")
-    
-    results = [None] * len(tasks)
-    
+
     if show_progress:
         logger.info(f"Running {len(tasks)} tasks concurrently with {max_workers} workers")
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(task): idx
-            for idx, task in enumerate(tasks)
-        }
-        
-        completed = 0
-        for future in as_completed(futures.keys()):
-            idx = futures[future]
+
+    semaphore = asyncio.Semaphore(max_workers)
+
+    async def bounded_task(idx: int, task: Callable) -> tuple[int, Any]:
+        async with semaphore:
             try:
-                results[idx] = future.result()
-                completed += 1
-                
-                if show_progress and completed % 10 == 0:
-                    logger.info(f"Completed {completed}/{len(tasks)} tasks")
+                if inspect.iscoroutinefunction(task):
+                    result = await task()
+                else:
+                    result = task()
+                return idx, result
             except Exception as e:
                 logger.error(f"Task {idx} failed: {str(e)}")
-                results[idx] = None
-    
+                return idx, None
+
+    async_tasks = [bounded_task(idx, task) for idx, task in enumerate(tasks)]
+    results_with_idx = await asyncio.gather(*async_tasks)
+
+    results = [None] * len(tasks)
+    for idx, result in results_with_idx:
+        results[idx] = result
+
     if show_progress:
         logger.info(f"Completed all {len(tasks)} tasks")
-    
+
     return results
 
 
@@ -73,27 +74,27 @@ async def read_multiple_files_async(file_paths: List[str]) -> List[Optional[str]
 async def write_multiple_files_async(file_content_pairs: List[tuple[str, str]]) -> List[bool]:
     """
     Write multiple files concurrently.
-    
+
     Args:
         file_content_pairs: List of (file_path, content) tuples
-    
+
     Returns:
         List of success flags for each file write
     """
     from ..tools.file_tools import write_file
-    
-    async def write_file_safe(file_path: str, content: str) -> bool:
+
+    def write_file_safe(file_path: str, content: str) -> bool:
         try:
             write_file(file_path, content)
             return True
         except Exception:
             return False
-    
+
     tasks = [
         lambda pair=pair: write_file_safe(pair[0], pair[1])
         for pair in file_content_pairs
     ]
-    
+
     return await run_concurrent_tasks(tasks)
 
 
@@ -104,21 +105,21 @@ async def process_files_concurrently(
 ) -> List[Any]:
     """
     Process multiple files concurrently with a custom function.
-    
+
     Args:
         file_paths: List of file paths to process
         process_func: Function that takes (file_path, file_content) and returns result
         max_workers: Maximum number of concurrent workers
-    
+
     Returns:
         List of results from processing each file
     """
     from ..tools.file_tools import read_file
     from ..utils.logging import get_logger
-    
+
     logger = get_logger("concurrent")
-    
-    async def process_single_file(file_path: str) -> Any:
+
+    def process_single_file(file_path: str) -> Any:
         try:
             content = read_file(file_path)
             if content.startswith("Error"):
@@ -128,9 +129,9 @@ async def process_files_concurrently(
         except Exception as e:
             logger.error(f"Error processing {file_path}: {str(e)}")
             return None
-    
-    tasks = [process_single_file for file_path in file_paths]
-    
+
+    tasks = [lambda fp=file_path: process_single_file(fp) for file_path in file_paths]
+
     return await run_concurrent_tasks(tasks, max_workers)
 
 

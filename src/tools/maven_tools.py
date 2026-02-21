@@ -19,7 +19,7 @@ from ..states.project import (
     MavenBuildState,
     JavaClassState
 )
-from .java_tools import create_java_class_state
+from .java_tools import analyze_java_class
 
 
 @tool
@@ -200,7 +200,7 @@ def create_project_state(project_path: str) -> ProjectState:
                 pass
         
         java_files = list(path.rglob("*.java"))
-        java_classes = [create_java_class_state(str(f)) for f in java_files]
+        java_classes = [analyze_java_class(path=str(f)) for f in java_files]
         
         return {
             "messages": [],
@@ -290,7 +290,7 @@ def refresh_project_state(project_state: ProjectState) -> ProjectState:
 @tool
 def refresh_java_class_state(java_class_path: str) -> JavaClassState:
     """Refresh JavaClassState by re-reading from file system."""
-    return create_java_class_state(java_class_path)
+    return analyze_java_class(path=java_class_path)
 
 
 @tool

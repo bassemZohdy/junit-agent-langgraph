@@ -54,7 +54,7 @@ def build_dependency_graph(project_path: str) -> Dict:
             }
         
         result = _run_maven_command(project_path, "dependency:resolve")
-        parse_output(result.stdout, graph)
+        parse_output(result["stdout"], graph)
         
         return graph
     except (MavenError, Exception) as e:
@@ -73,9 +73,9 @@ def detect_dependency_conflicts(project_path: str) -> str:
         validate_project_directory(project_path)
         
         result = _run_maven_command(project_path, "dependency:analyze")
-        
+
         conflicts = []
-        lines = result.stdout.split('\n')
+        lines = result["stdout"].split('\n')
         
         for line in lines:
             if "conflict" in line.lower() and "version" in line.lower():
