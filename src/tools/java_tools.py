@@ -15,7 +15,7 @@ from ..utils.validation import (
     validate_import_statement,
     validate_modifier
 )
-from ..states.java_project_states import (
+from ..states.project import (
     JavaClassState,
     MethodState,
     FieldState,

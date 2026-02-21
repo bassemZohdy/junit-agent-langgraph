@@ -4,7 +4,7 @@ from langchain_core.tools import tool
 from xml.etree import ElementTree as ET
 from ..exceptions.handler import MavenError, create_error_response
 from ..utils.validation import validate_project_directory, validate_pom_xml
-from ..states.java_project_states import MavenDependencyState
+from ..states.project import MavenDependencyState
 
 
 @tool

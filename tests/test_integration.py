@@ -6,15 +6,18 @@ import shutil
 import os
 from unittest.mock import Mock, AsyncMock, patch
 from langchain_core.messages import HumanMessage, AIMessage
-from ..src.states.project import ProjectState, JavaClassState
-from ..src.graphs.workflow import create_workflow
-from ..src.tools.java_tools import find_java_files, create_java_class_state
-from ..src.tools.maven_tools import create_project_state, maven_build
-from ..src.tools.code_generation_tools import generate_getters_setters
-from ..src.tools.git_tools import git_status, git_is_repository
-from ..src.utils.state_manager import get_state_manager, StateManager
-from ..src.utils.access_control import get_access_control_manager
-from ..src.utils.validation import validate_class_name, validate_project_directory, ValidationError
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from src.states.project import ProjectState, JavaClassState
+from src.graphs.workflow import create_test_generation_workflow
+from src.tools.java_tools import find_java_files, create_java_class_state
+from src.tools.maven_tools import create_project_state, maven_build
+from src.tools.code_generation_tools import generate_getters_setters
+from src.tools.git_tools import git_status, git_is_repository
+from src.utils.state_manager import get_state_manager, StateManager
+from src.utils.access_control import get_access_control_manager
+from src.utils.validation import validate_class_name, validate_project_directory, ValidationError
 from ..src.utils.security import check_for_secrets
 
 SAMPLES_DIR = Path(__file__).resolve().parent / "samples"

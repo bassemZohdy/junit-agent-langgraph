@@ -2,7 +2,10 @@ import unittest
 import tempfile
 import shutil
 from pathlib import Path
-from ..src.utils.validation import (
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from src.utils.validation import (
     validate_not_none,
     validate_not_empty,
     validate_file_exists,
@@ -17,7 +20,7 @@ from ..src.utils.validation import (
     validate_maven_scope,
     validate_in_allowed_values
 )
-from ..src.exceptions.handler import ValidationError
+from src.exceptions.handler import ValidationError
 
 
 class TestValidationUtils(unittest.TestCase):

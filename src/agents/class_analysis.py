@@ -1,5 +1,5 @@
 from typing import Optional, Dict, List
-from ..tools.java_tools import read_file
+from ..tools.file_tools import read_file
 from ..utils.java_parser import extract_imports, extract_dependencies, parse_java_file
 from .base import BaseAgent
 

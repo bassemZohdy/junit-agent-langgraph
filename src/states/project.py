@@ -53,7 +53,7 @@ class JavaClassState(TypedDict):
     fields: list[FieldState]
     methods: list[MethodState]
     imports: list[ImportState]
-    inner_classes: list[JavaClassState]
+    inner_classes: list["JavaClassState"]
     status: str
     errors: list[str]
     line_number: Optional[int]

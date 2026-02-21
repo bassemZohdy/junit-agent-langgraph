@@ -41,7 +41,7 @@ def generate_getters_setters(java_file: str, class_name: str) -> str:
             getter_name = f"get{field_name[0].upper()}{field_name[1:]}"
             setter_name = f"set{field_name[0].upper()}{field_name[1:]}"
             
-            generated_code.append(f"{indent}public {field_type_name} {getter_name}() {{")
+            generated_code.append(f"{indent}public {field_type_name} {getter_name() {{")
             generated_code.append(f"{indent}{indent}return this.{field_name};")
             generated_code.append(f"{indent}}}")
             generated_code.append("")
@@ -101,7 +101,7 @@ def generate_constructor(java_file: str, class_name: str, include_all_fields: bo
             constructor_code = [
                 f"{indent}public {class_name}({params_str}) {{",
                 assignments_str,
-                f"{indent}}"
+                f"{indent}}}"
             ]
         else:
             constructor_code = [
@@ -152,7 +152,7 @@ def generate_tostring_equals_hashcode(java_file: str, class_name: str) -> str:
                 field_parts.append(f" \", \" +")
             field_parts.append(f"{field.name}=\" + this.{field.name}")
         
-        generated_code.append(f"{indent}{indent}{indent}\" + \", \".join(field_parts) + '}'")
+        generated_code.append(f"{indent}{indent}{indent}\" + \", \".join(field_parts) + '}}'")
         generated_code.append(f"{indent}}}")
         generated_code.append("")
         
@@ -171,7 +171,7 @@ def generate_tostring_equals_hashcode(java_file: str, class_name: str) -> str:
             conditions.append(f"{indent}{indent}Objects.equals({field_name}, that.{field_name})")
         
         if conditions:
-            generated_code.append(f"{indent}{indent}return {\" && \".join(conditions)};")
+            generated_code.append(f"{indent}{indent}return {' && '.join(conditions)};")
         else:
             generated_code.append(f"{indent}{indent}return true;")
         
@@ -187,7 +187,7 @@ def generate_tostring_equals_hashcode(java_file: str, class_name: str) -> str:
             if field.name:
                 hash_fields.append(f"{field.name}")
         
-        generated_code.append(f"{indent}{indent}{indent}\", \".join(hash_fields)});")
+        generated_code.append(f"{indent}{indent}{indent}}};")
         generated_code.append(f"{indent}}}")
         generated_code.append("")
         

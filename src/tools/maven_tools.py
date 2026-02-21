@@ -12,7 +12,7 @@ from ..utils.validation import (
     validate_pom_xml,
     validate_positive_integer
 )
-from ..states.java_project_states import (
+from ..states.project import (
     ProjectState,
     MavenDependencyState,
     MavenPluginState,

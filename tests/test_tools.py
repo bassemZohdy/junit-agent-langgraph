@@ -4,10 +4,13 @@ import tempfile
 import shutil
 from unittest.mock import Mock, patch
 from langchain_core.tools import tool
-from ..src.tools.file_tools import read_file, write_file, list_files, list_directories, delete_file
-from ..src.tools.java_tools import find_java_files, create_java_class_state, get_java_classes, get_java_methods
-from ..src.tools.maven_tools import maven_build, maven_test, maven_clean, create_project_state
-from ..src.utils.validation import ValidationError, FileOperationError
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from src.tools.file_tools import read_file, write_file, list_files, list_directories, delete_file
+from src.tools.java_tools import find_java_files, create_java_class_state, get_java_classes, get_java_methods
+from src.tools.maven_tools import maven_build, maven_test, maven_clean, create_project_state
+from src.utils.validation import ValidationError, FileOperationError
 
 
 class TestFileTools(unittest.TestCase):
