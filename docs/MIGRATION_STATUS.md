@@ -13,7 +13,9 @@ fixture with fields, a real temporary Git repository, the actual state API and d
 path/SQL/secret validation APIs. Maven metadata now invokes decorated tools correctly.
 Permission decisions are logged; getter generation uses Java field declarators.
 
-Run `python -m unittest discover -s tests -v`.
+Install `requirements-test.txt` and run `python -m pytest tests -q` to execute both
+pytest functions and unittest cases. Schema types use `typing_extensions.TypedDict`
+for the Python 3.11 CI baseline.
 `python tests/migration_adapter.py /path/to/corpus` checks the same three original parser
 fixtures as other candidate engines without creating a model client.
 Passing parser/workflow tests is not generated-test compilation, mutation, cost or speed
