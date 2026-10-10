@@ -30,7 +30,7 @@ class GenerateTestAgent(BaseAgent):
         test_file_path = os.path.join(
             state.get("project_path", ""),
             "src/test/java",
-            *class_name.split("/")[:-1],
+            *(current_class.get("package") or "").split("."),
             f"{test_class_name}.java"
         )
         
@@ -59,6 +59,9 @@ Generate high-quality, well-structured test code following best practices."""
         user_prompt = f"""Generate a JUnit 5 + Spring Boot test class for the following Java class:
 
 Class Name: {class_name}
+
+Source code:
+{class_content}
 
 Fields:
 {fields_str}

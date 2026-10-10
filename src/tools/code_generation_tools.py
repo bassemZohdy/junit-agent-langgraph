@@ -32,25 +32,21 @@ def generate_getters_setters(java_file: str, class_name: str) -> str:
         indent = "    "
         
         for field in target_class.fields:
-            if not field.name or not field.type:
+            if not field.type or "static" in field.modifiers:
                 continue
-            
             field_type_name = get_type_name(field.type)
-            field_name = field.name
-            
-            getter_name = f"get{field_name[0].upper()}{field_name[1:]}"
-            setter_name = f"set{field_name[0].upper()}{field_name[1:]}"
+            for declarator in field.declarators:
+                field_name = declarator.name
+                getter_name = f"get{field_name[0].upper()}{field_name[1:]}"
+                setter_name = f"set{field_name[0].upper()}{field_name[1:]}"
+                generated_code.extend([
+                    f"{indent}public {field_type_name} {getter_name}() {{",
+                    f"{indent}{indent}return this.{field_name};", f"{indent}}}", ""])
+                if "final" not in field.modifiers:
+                    generated_code.extend([
+                        f"{indent}public void {setter_name}({field_type_name} {field_name}) {{",
+                        f"{indent}{indent}this.{field_name} = {field_name};", f"{indent}}}", ""])
 
-            generated_code.append(f"{indent}public {field_type_name} {getter_name()} {{")
-            generated_code.append(f"{indent}{indent}return this.{field_name};")
-            generated_code.append(f"{indent}}}")
-            generated_code.append("")
-            
-            generated_code.append(f"{indent}public void {setter_name}({field_type_name} {field_name}) {{")
-            generated_code.append(f"{indent}{indent}this.{field_name} = {field_name};")
-            generated_code.append(f"{indent}}}")
-            generated_code.append("")
-        
         return "\n".join(generated_code)
     except Exception as e:
         response = create_error_response(e)

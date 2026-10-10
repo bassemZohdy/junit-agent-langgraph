@@ -85,6 +85,11 @@ class AccessControlManager:
             return self._read_only_mode
     
     def check_permission(self, path: str, operation: AccessLevel) -> AccessControlEntry:
+        entry = self._check_permission(path, operation)
+        self.log_operation(operation.value, entry.path, entry.allowed, entry.reason)
+        return entry
+
+    def _check_permission(self, path: str, operation: AccessLevel) -> AccessControlEntry:
         """
         Check if an operation on a path is allowed.
         

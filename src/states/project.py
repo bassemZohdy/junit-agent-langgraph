@@ -1,4 +1,5 @@
-from typing import Annotated, TypedDict, Optional
+from typing import Annotated, Optional
+from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
 
@@ -131,6 +132,7 @@ class ProjectState(TypedDict):
     has_junit: bool
     has_mockito: bool
     
+    review_retry_count: int
     retry_count: int
     max_retries: int
     test_results: dict

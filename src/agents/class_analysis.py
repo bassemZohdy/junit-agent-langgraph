@@ -1,5 +1,5 @@
 from typing import Optional, Dict, List
-from ..tools.file_tools import read_file
+from ..tools.file_tools import read_file_func
 from ..utils.java_parser import extract_imports, extract_dependencies, parse_java_file
 from .base import BaseAgent
 
@@ -32,7 +32,7 @@ class ClassAnalysisAgent(BaseAgent):
     async def _extract_class_metadata(self, file_path: str) -> dict:
         try:
             import javalang
-            content = read_file(file_path)
+            content = read_file_func(file_path)
             if not content:
                 return {
                     "status": "error",
@@ -46,13 +46,15 @@ class ClassAnalysisAgent(BaseAgent):
             
             metadata = {
                 "status": "analyzed",
+                "content": content,
                 "errors": [],
                 "methods": [],
                 "fields": [],
                 "dependencies": []
             }
             
-            for path, node in tree:
+            # Only enrich top-level declarations; nested methods belong to their own type.
+            for node in tree.types:
                 if isinstance(node, javalang.tree.ClassDeclaration):
                     for method in node.methods:
                         method_info = {
