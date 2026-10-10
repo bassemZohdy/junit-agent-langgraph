@@ -184,10 +184,10 @@ def create_project_state(project_path: str) -> ProjectState:
         
         if has_maven:
             try:
-                pom_data = parse_pom_xml(pom_path=str(pom_xml))
+                pom_data = parse_pom_xml.invoke({"pom_path": str(pom_xml)})
                 maven_info = pom_data
-                dependencies = extract_dependencies(project_path)
-                plugins = extract_plugins(project_path)
+                dependencies = extract_dependencies.invoke({"project_path": project_path})
+                plugins = extract_plugins.invoke({"project_path": project_path})
                 
                 for dep in dependencies:
                     if "spring" in dep["artifact_id"].lower():
@@ -200,7 +200,7 @@ def create_project_state(project_path: str) -> ProjectState:
                 pass
         
         java_files = list(path.rglob("*.java"))
-        java_classes = [analyze_java_class(path=str(f)) for f in java_files]
+        java_classes = [analyze_java_class.invoke({"path": str(f)}) for f in java_files]
         
         return {
             "messages": [],

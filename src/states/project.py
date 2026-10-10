@@ -131,6 +131,7 @@ class ProjectState(TypedDict):
     has_junit: bool
     has_mockito: bool
     
+    review_retry_count: int
     retry_count: int
     max_retries: int
     test_results: dict

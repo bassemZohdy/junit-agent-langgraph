@@ -12,6 +12,8 @@ from ..agents.project_validator import ProjectValidatorAgent
 
 
 def create_test_generation_workflow(llm=None, max_retries=3):
+    if not isinstance(max_retries, int) or isinstance(max_retries, bool) or max_retries < 0:
+        raise ValueError("max_retries must be a non-negative integer")
     if llm is None:
         llm = create_llm()
     
@@ -25,7 +27,8 @@ def create_test_generation_workflow(llm=None, max_retries=3):
 
     async def analyze_project_node(state: ProjectState):
         result = await analyze_project_agent.process(state)
-        return result
+        return {**result, "retry_count": 0, "review_retry_count": 0,
+                "max_retries": max_retries}
 
     async def class_analysis_node(state: ProjectState):
         java_classes = state.get("java_classes", [])
@@ -38,9 +41,9 @@ def create_test_generation_workflow(llm=None, max_retries=3):
             class_state = state.copy()
             class_state["current_class"] = java_class
             result = await class_analysis_agent.process(class_state)
-            results.append(result)
-        
-        return {"last_action": "class_analysis_completed"}
+            results.append(result.get("current_class", java_class))
+
+        return {"java_classes": results, "last_action": "class_analysis_completed"}
 
     async def generate_test_node(state: ProjectState):
         java_classes = state.get("java_classes", [])
@@ -48,8 +51,9 @@ def create_test_generation_workflow(llm=None, max_retries=3):
         if not java_classes:
             return {"last_action": "generate_test_failed", "error": "No classes to generate tests for"}
         
-        test_classes = state.get("test_classes", [])
-        
+        # Regeneration replaces the previous attempt rather than accumulating duplicates.
+        test_classes = []
+
         for java_class in java_classes:
             class_state = state.copy()
             class_state["current_class"] = java_class
@@ -73,12 +77,13 @@ def create_test_generation_workflow(llm=None, max_retries=3):
         for i, result in enumerate(results):
             updated_test_classes[i] = result.get("test_classes", [test_classes[i]])[0]
         
-        return {"test_classes": updated_test_classes, "last_action": "tests_reviewed"}
+        return {"test_classes": updated_test_classes, "last_action": "tests_reviewed",
+                "review_retry_count": state.get("review_retry_count", 0) + 1}
 
     async def validate_test_node(state: ProjectState):
         test_classes = state.get("test_classes", [])
 
-        all_passed = True
+        all_passed = bool(test_classes)
         updated_test_classes = []
         all_test_results = {}
 
@@ -130,7 +135,7 @@ def create_test_generation_workflow(llm=None, max_retries=3):
         result = await project_validator_agent.process(state)
         return result
 
-    def should_continue_review(state: ProjectState) -> Literal["generate_test", "validate_test"]:
+    def should_continue_review(state: ProjectState) -> Literal["generate_test", "validate_test", "end_failed"]:
         test_classes = state.get("test_classes", [])
         
         if not test_classes:
@@ -138,18 +143,20 @@ def create_test_generation_workflow(llm=None, max_retries=3):
         
         for test_class in test_classes:
             if test_class.get("status") in ["needs_fixes", "review_comments"]:
-                return "generate_test"
+                if state.get("review_retry_count", 0) <= max_retries:
+                    return "generate_test"
+                return "end_failed"
         
         return "validate_test"
 
     def should_validate(state: ProjectState) -> Literal["fix_test", "project_validator", "end_failed"]:
-        all_passed = state.get("all_tests_passed", True)
+        all_passed = state.get("all_tests_passed", False)
         retry_count = state.get("retry_count", 0)
-        max_retries = state.get("max_retries", 3)
+        retry_limit = max_retries
         
         if all_passed:
             return "project_validator"
-        elif retry_count < max_retries:
+        elif retry_count < retry_limit and state.get("test_classes"):
             return "fix_test"
         else:
             return "end_failed"
@@ -182,7 +189,8 @@ def create_test_generation_workflow(llm=None, max_retries=3):
         should_continue_review,
         {
             "generate_test": "generate_test",
-            "validate_test": "validate_test"
+            "validate_test": "validate_test",
+            "end_failed": "end_failed"
         }
     )
     

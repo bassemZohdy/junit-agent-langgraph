@@ -13,7 +13,7 @@ class AnalyzeProjectAgent(BaseAgent):
         project_path = state.get("project_path", "")
 
         # Use new unified API: list_java_classes returns List[JavaClassState]
-        java_class_states = list_java_classes(project_path)
+        java_class_states = list_java_classes.invoke({"directory": project_path})
 
         java_classes = []
         dependency_graph = {}
@@ -36,6 +36,7 @@ class AnalyzeProjectAgent(BaseAgent):
                 "full_name": full_class_name,
                 "file_path": class_state.get("file_path", ""),
                 "content": class_state.get("content"),
+                "package": class_state.get("package"),
                 "status": "analyzed",
                 "errors": [],
                 "methods": class_state.get("methods", []),

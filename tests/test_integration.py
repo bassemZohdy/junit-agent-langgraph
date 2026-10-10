@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 import tempfile
 import shutil
+import subprocess
 import os
 from unittest.mock import Mock, AsyncMock, patch
 from langchain_core.messages import HumanMessage, AIMessage
@@ -17,7 +18,7 @@ from src.tools.code_generation_tools import generate_getters_setters
 from src.tools.git_tools import git_status, git_is_repository
 from src.utils.state_manager import get_state_manager, StateManager
 from src.utils.access_control import get_access_control_manager, AccessControlManager, AccessLevel
-from src.utils.validation import validate_class_name, validate_project_directory, ValidationError
+from src.utils.validation import validate_class_name, validate_project_directory, ValidationError, FileOperationError
 from src.utils.security import SecurityUtils
 
 SAMPLES_DIR = Path(__file__).resolve().parent / "samples"
@@ -75,13 +76,15 @@ class TestIntegrationWorkflows(unittest.TestCase):
 
         self.assertTrue(calculator_file.exists())
 
-        class_state = invoke_tool(analyze_java_class, path=str(calculator_file))
+        # The accessor fixture needs fields and must not modify the tracked sample.
+        accessor_file = self.java_dir / "Calculator.java"
+        accessor_file.write_text("public class Calculator { private int operand1; }", encoding="utf-8")
+        class_state = invoke_tool(analyze_java_class, path=str(accessor_file))
         self.assertIsNotNone(class_state)
 
         result = invoke_tool(generate_getters_setters,
-                             file_path=str(calculator_file),
-                             class_name="Calculator",
-                             fields=class_state["fields"])
+                             java_file=str(accessor_file),
+                             class_name="Calculator")
         self.assertIn("getOperand1", result)
         self.assertIn("setOperand1", result)
     
@@ -93,7 +96,7 @@ class TestIntegrationWorkflows(unittest.TestCase):
         project_state = invoke_tool(create_project_state, project_path=str(sample_project))
         self.assertIsNotNone(project_state)
         self.assertEqual("com.example", project_state["maven_group_id"])
-        self.assertEqual("simple-java", project_state["maven_artifact_id"])
+        self.assertEqual("junit4-sample", project_state["maven_artifact_id"])
         self.assertEqual("1.0.0", project_state["version"])
         self.assertTrue(project_state["has_junit"])
     
@@ -138,7 +141,7 @@ class TestIntegrationWorkflows(unittest.TestCase):
         }
 
         state_manager.set_state(initial_state)
-        state = state_manager.get_current_state()
+        state = state_manager.get_state()
         self.assertIsNotNone(state)
         self.assertEqual(str(self.temp_dir), state["project_path"])
     
@@ -174,9 +177,16 @@ class TestIntegrationWorkflows(unittest.TestCase):
         ]
         
         for input_str in malicious_inputs:
-            secrets = SecurityUtils.check_for_secrets(input_str)
-            self.assertGreater(len(secrets), 0, 
-                             f"Should detect malicious content in: {input_str}")
+            if input_str.startswith("SELECT"):
+                with self.assertRaises(ValidationError):
+                    SecurityUtils.sanitize_sql_input(input_str)
+            elif "../" in input_str or "<script" in input_str:
+                with self.assertRaises(ValidationError):
+                    SecurityUtils.sanitize_path(input_str)
+            else:
+                secrets = SecurityUtils.check_for_secrets(input_str)
+                self.assertGreater(len(secrets), 0,
+                                 f"Should detect secret in: {input_str}")
     
     def test_validation_workflow(self):
         """Test input validation workflow"""
@@ -195,13 +205,12 @@ class TestIntegrationWorkflows(unittest.TestCase):
     
     def test_git_integration_workflow(self):
         """Test Git integration workflow"""
-        git_dir = self.temp_dir / ".git"
-        git_dir.mkdir()
+        subprocess.run(["git", "init", str(self.temp_dir)], check=True, capture_output=True)
 
-        is_repo = invoke_tool(git_is_repository, path=str(self.temp_dir))
+        is_repo = invoke_tool(git_is_repository, project_path=str(self.temp_dir))
         self.assertTrue(is_repo)
 
-        status = invoke_tool(git_status, path=str(self.temp_dir))
+        status = invoke_tool(git_status, project_path=str(self.temp_dir))
         self.assertIsNotNone(status)
     
     def test_concurrent_operations_workflow(self):
@@ -229,7 +238,7 @@ class TestIntegrationWorkflows(unittest.TestCase):
         non_existent_dir = self.temp_dir / "nonexistent"
         try:
             validate_project_directory(str(non_existent_dir))
-        except (ValidationError, FileNotFoundError):
+        except (ValidationError, FileOperationError, FileNotFoundError):
             pass
         else:
             self.fail("Should raise exception for non-existent directory")

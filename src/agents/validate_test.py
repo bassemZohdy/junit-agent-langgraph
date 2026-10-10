@@ -2,7 +2,7 @@ import os
 import re
 from typing import Dict, List
 from .base import BaseAgent
-from ..tools.file_tools import write_file
+from ..tools.file_tools import write_file_func
 from ..tools.async_maven_tools import maven_build_async, maven_test_async
 
 
@@ -80,7 +80,9 @@ class ValidateTestAgent(BaseAgent):
     async def _write_test_file(self, file_path: str, content: str) -> Dict:
         try:
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            write_file(file_path, content)
+            result = write_file_func(file_path, content)
+            if not result.startswith("Successfully wrote"):
+                return {"success": False, "errors": [result]}
             return {"success": True}
         except Exception as e:
             return {

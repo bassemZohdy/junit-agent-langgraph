@@ -60,8 +60,8 @@ def _extract_fields_from_node(node: javalang.tree.ClassDeclaration) -> list[Fiel
             for ann in field.annotations:
                 ann_name = ann.name if hasattr(ann, "name") else str(ann)
                 ann_elements = {}
-                if hasattr(ann, "element"):
-                    ann_elements[ann.element.name] = str(ann.element)
+                if ann.element is not None:
+                    ann_elements["value"] = str(ann.element)
 
                 field_annotations.append({
                     "name": ann_name,
@@ -176,8 +176,8 @@ def _extract_class_details_from_tree(source_file: str, tree: javalang.tree.Compi
             for ann in (node.annotations if node.annotations else []):
                 ann_name = ann.name if hasattr(ann, "name") else str(ann)
                 ann_elements = {}
-                if hasattr(ann, "element"):
-                    ann_elements[ann.element.name] = str(ann.element)
+                if ann.element is not None:
+                    ann_elements["value"] = str(ann.element)
 
                 class_annotations.append({
                     "name": ann_name,
