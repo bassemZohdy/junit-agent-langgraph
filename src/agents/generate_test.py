@@ -24,7 +24,8 @@ class GenerateTestAgent(BaseAgent):
         
         await self.log(f"Generating tests for class: {class_name}")
         
-        test_content = await self._generate_test_content(class_name, class_content, methods, fields)
+        test_content = await self._generate_test_content(class_name, class_content, methods, fields,
+                                                        state.get('review_feedback',[]))
         
         test_class_name = f"{class_name}Test"
         test_file_path = os.path.join(
@@ -49,14 +50,14 @@ class GenerateTestAgent(BaseAgent):
             "last_action": "test_generated"
         }
 
-    async def _generate_test_content(self, class_name: str, class_content: str, methods: List[Dict], fields: List[Dict]) -> str:
+    async def _generate_test_content(self, class_name: str, class_content: str, methods: List[Dict], fields: List[Dict], review_feedback=None) -> str:
         methods_str = self._format_methods_for_prompt(methods)
         fields_str = self._format_fields_for_prompt(fields)
         
         system_prompt = """You are a senior Java developer specialized in writing comprehensive JUnit and Spring Boot test classes. 
 Generate high-quality, well-structured test code following best practices."""
 
-        user_prompt = f"""Generate a JUnit 5 + Spring Boot test class for the following Java class:
+        user_prompt = f"""Generate a Java unit test class using the project's existing test dependencies:
 
 Class Name: {class_name}
 
@@ -69,14 +70,17 @@ Fields:
 Methods:
 {methods_str}
 
+Previous review feedback to address:
+{chr(10).join(review_feedback or []) or 'Initial generation; no previous feedback.'}
+
 Requirements:
-1. Use JUnit 5 (Jupiter) annotations
-2. Include @SpringBootTest if testing Spring components
-3. Use @Mock and @InjectMocks from Mockito for dependency injection
+1. Use the JUnit version available in the project, preserving its POM
+2. Use Spring test annotations only if their test dependencies are available
+3. Use Mockito only when available and needed for the class's actual dependencies
 4. Write test methods for each public method with meaningful test cases
 5. Include both positive and negative test cases where applicable
-6. Use AssertJ assertions for better readability
-7. Add @DisplayName annotations for descriptive test names
+6. Use assertions from available test libraries; do not add dependencies
+7. Use descriptive test names; @DisplayName requires JUnit Jupiter
 8. Follow AAA pattern (Arrange, Act, Assert)
 9. Include proper setUp/tearDown methods if needed
 

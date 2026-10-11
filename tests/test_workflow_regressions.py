@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from src.agents.class_analysis import ClassAnalysisAgent
 from src.agents.generate_test import GenerateTestAgent
 from src.agents.validate_test import ValidateTestAgent
+from src.agents.review_test import ReviewTestAgent
 from src.tools.java_tools import analyze_java_class
 from src.graphs import workflow
 
@@ -45,7 +46,7 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(result['success'])
             self.assertEqual('class LedgerTest {}', path.read_text())
 
-    def invoke_stubbed(self, *, reviews_fail=False, validation_fail=False, empty=False, retries=1):
+    def invoke_stubbed(self, *, reviews_fail=False, validation_fail=False, empty=False, retries=1, failure_status='failed'):
         classes = [] if empty else [{'name': 'Ledger', 'file_path': 'Ledger.java'}]
         analyze = AsyncMock(return_value={'java_classes': classes})
         enrich = AsyncMock(side_effect=lambda state: {'current_class':
@@ -54,13 +55,16 @@ class WorkflowTests(unittest.TestCase):
 
         async def generate(state):
             self.assertEqual('ENRICHED', state['current_class']['content'])
+            if reviews_fail and generated:
+                self.assertEqual(['Use existing dependencies'],state['review_feedback'])
             generated.append(1)
             return {'test_classes': [{'name': 'LedgerTest', 'status': 'generated'}]}
 
         review = AsyncMock(side_effect=lambda state: {'test_classes':
-                            [{**state['test_classes'][0], 'status': 'needs_fixes' if reviews_fail else 'reviewed'}]})
+                            [{**state['test_classes'][0], 'status': 'needs_fixes' if reviews_fail else 'reviewed',
+                              'review_comments': ['Use existing dependencies'] if reviews_fail else []}]})
         validate = AsyncMock(side_effect=lambda state: {'test_classes':
-                            [{**state['test_classes'][0], 'status': 'failed' if validation_fail else 'passed'}]})
+                            [{**state['test_classes'][0], 'status': failure_status if validation_fail else 'passed'}]})
         fix = AsyncMock(side_effect=lambda state: {'test_classes': state['test_classes']})
         project = AsyncMock(return_value={'build_status': 'passed'})
         mocks = [analyze, enrich, generate, review, validate, fix, project]
@@ -87,6 +91,38 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual('failed', result['build_status'])
         self.assertEqual(1, fix.await_count)
         project.assert_not_awaited()
+
+    def test_compilation_failure_reaches_the_bounded_fix_agent(self):
+        result, _, fix, project = self.invoke_stubbed(validation_fail=True,failure_status='compilation_failed')
+        self.assertEqual('failed',result['build_status'])
+        fix.assert_awaited_once()
+        project.assert_not_awaited()
+
+    def test_reviewer_receives_source_and_empty_array_means_no_issues(self):
+        llm = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content='[]')))
+        result = asyncio.run(ReviewTestAgent(llm).process({'java_classes':[
+            {'name':'Ledger','content':'PRODUCTION_SOURCE_SENTINEL'}], 'test_classes':[
+            {'name':'LedgerTest','target_class':'Ledger','content':'class LedgerTest {}'}]}))
+        self.assertIn('PRODUCTION_SOURCE_SENTINEL',llm.ainvoke.call_args.args[0][-1].content)
+        self.assertEqual('reviewed',result['test_classes'][0]['status'])
+        self.assertEqual([],result['test_classes'][0]['review_comments'])
+
+    def test_structured_reviews_retain_issues_and_handle_fenced_empty_arrays(self):
+        for text,expected in (('["Wrong assertion"]',['Wrong assertion']),('```json\n[]\n```',[])):
+            llm = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=text)))
+            result = asyncio.run(ReviewTestAgent(llm)._review_test_code({'name':'LedgerTest','content':'TEST'}))
+            self.assertEqual(expected,result)
+
+    def test_unrecognized_review_format_is_not_silent_approval(self):
+        for text in ('[','{"status":"passed"}','[null]'):
+            llm = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=text)))
+            result = asyncio.run(ReviewTestAgent(llm)._review_test_code({'name':'LedgerTest','content':'TEST'}))
+            self.assertTrue(result)
+
+    def test_generator_receives_previous_review_feedback(self):
+        llm = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content='class LedgerTest {}')))
+        asyncio.run(GenerateTestAgent(llm)._generate_test_content('Ledger','SOURCE',[],[],['REPAIR_SENTINEL']))
+        self.assertIn('REPAIR_SENTINEL',llm.ainvoke.call_args.args[0][-1].content)
 
     def test_empty_tests_fail(self):
         result, _, _, project = self.invoke_stubbed(empty=True)

@@ -6,6 +6,13 @@ bounds review regeneration and compile-repair attempts, replaces duplicate attem
 and rejects the empty-test success path. The retry budget supplied at workflow creation
 cannot be expanded through input state.
 
+Review receives the retained production source. Its requested JSON comment arrays
+are parsed explicitly, including an empty array; unknown response formats remain
+issues rather than silent approval. Regeneration receives the previous review's
+feedback and uses the project's available libraries instead of forcing JUnit 5,
+Spring testing and AssertJ. Actual `compilation_failed` statuses enter the bounded
+fix agent. These are workflow regressions, not evidence of generated-test parity.
+
 Offline regressions use fake agents and models. They check bounded failure, successful
 routing, source retention, marker annotations and tool function calls. Existing integration
 tests retain their behavior checks while using the real tool schema, a temporary accessor
