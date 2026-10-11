@@ -1,4 +1,5 @@
 from typing import List
+import json
 from langchain_core.messages import HumanMessage, SystemMessage
 from .base import BaseAgent
 
@@ -17,7 +18,10 @@ class ReviewTestAgent(BaseAgent):
         
         await self.log(f"Reviewing test class: {latest_test['name']}")
         
-        review_comments = await self._review_test_code(latest_test)
+        target = latest_test.get('target_class') or latest_test['name'].removesuffix('Test')
+        source = next((item.get('content','') for item in state.get('java_classes',[])
+                       if item.get('name')==target),'')
+        review_comments = await self._review_test_code(latest_test,source)
         
         updated_test_classes = test_classes.copy()
         updated_test_classes[-1]["review_comments"] = review_comments
@@ -32,7 +36,7 @@ class ReviewTestAgent(BaseAgent):
             "last_action": "test_reviewed"
         }
 
-    async def _review_test_code(self, test_class: dict) -> List[str]:
+    async def _review_test_code(self, test_class: dict, source_content: str = '') -> List[str]:
         test_name = test_class.get("name", "")
         test_content = test_class.get("content", "")
         
@@ -42,7 +46,7 @@ class ReviewTestAgent(BaseAgent):
         system_prompt = """You are a senior code reviewer specialized in Java testing best practices.
 Review the provided test code for:
 1. Code quality and readability
-2. Proper use of JUnit 5 and Spring Boot annotations
+2. Proper use of the candidate's actual JUnit version and available dependencies
 3. Test coverage and completeness
 4. Mock usage and dependency injection
 5. Assertion quality and accuracy
@@ -52,17 +56,20 @@ Review the provided test code for:
 9. Security best practices
 10. Maintainability
 
-Provide specific, actionable comments for any issues found."""
+Preserve production code and POMs. Do not require unavailable libraries or invent
+source behavior. Return only a JSON array of actionable defects, or [] if none."""
 
         user_prompt = f"""Review the following test class:
 
 Test Class Name: {test_name}
 
+Production Source:
+{source_content or 'Not provided; do not assume implementation behavior.'}
+
 Test Code:
 {test_content}
 
-Provide your review as a list of specific comments. If the code follows best practices and has no issues, return an empty list.
-Format each comment as a clear, actionable statement."""
+Return a JSON array of specific comments. If there are no actionable defects, return []."""
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -72,6 +79,15 @@ Format each comment as a clear, actionable statement."""
         if self._llm:
             response = await self._llm.ainvoke(messages)
             review_text = response.content.strip()
+            structured = review_text
+            if structured.startswith('```') and structured.endswith('```'):
+                structured = '\n'.join(structured.splitlines()[1:-1]).strip()
+            try:
+                comments = json.loads(structured)
+                if isinstance(comments,list) and all(isinstance(item,str) for item in comments):
+                    return comments
+            except (ValueError,TypeError):
+                pass
             
             if review_text.lower() in ["no issues found", "no issues", "looks good", "no comments"]:
                 return []

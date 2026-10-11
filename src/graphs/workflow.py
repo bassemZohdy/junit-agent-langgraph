@@ -58,6 +58,10 @@ def create_test_generation_workflow(llm=None, max_retries=3):
             class_state = state.copy()
             class_state["current_class"] = java_class
             class_state["test_classes"] = test_classes
+            previous = next((test for test in state.get('test_classes',[])
+                             if test.get('target_class')==java_class.get('name')
+                             or test.get('name')==java_class.get('name','')+'Test'),{})
+            class_state['review_feedback'] = previous.get('review_comments',[])
             result = await generate_test_agent.process(class_state)
             test_classes = result.get("test_classes", test_classes)
         
@@ -109,7 +113,8 @@ def create_test_generation_workflow(llm=None, max_retries=3):
     async def fix_test_node(state: ProjectState):
         test_classes = state.get("test_classes", [])
         
-        failed_tests = [t for t in test_classes if t.get("status") in ["failed", "needs_fixes"]]
+        failed_tests = [t for t in test_classes if t.get("status") in
+                        ["failed", "needs_fixes", "compilation_failed"]]
         
         updated_test_classes = test_classes.copy()
         
